@@ -1,0 +1,152 @@
+# GBD XML Parser module for YouPower PG&E Tool
+import xml.etree.ElementTree as ET
+import pandas as pd
+from datetime import datetime, timedelta
+
+class GBDXMLParser:
+    """Parser for Green Button Data XML files."""
+    
+    # ESPI namespace for Green Button Data
+    NS = {
+        'espi': 'http://naesb.org/espi',
+        'atom': 'http://www.w3.org/2005/Atom'
+    }
+    
+    def __init__(self, xml_file_path):
+        """Initialize with the path to a Green Button Data XML file."""
+        self.xml_file_path = xml_file_path
+        self.tree = None
+        self.root = None
+        self.usage_point = None
+        self.meter_readings = []
+        self.interval_blocks = []
+        
+    def parse(self):
+        """Parse the XML file and extract all necessary data."""
+        try:
+            # Parse the XML file
+            self.tree = ET.parse(self.xml_file_path)
+            self.root = self.tree.getroot()
+            
+            # Get the usage point information
+            self.usage_point = self.root.find('.//espi:UsagePoint', self.NS)
+            
+            # Find all meter readings (could be multiple for different metrics)
+            self.meter_readings = self.root.findall('.//espi:MeterReading', self.NS)
+            
+            # Find all interval blocks containing the actual data
+            self.interval_blocks = self.root.findall('.//espi:IntervalBlock', self.NS)
+            
+            # Extract and process the interval readings
+            data = self._extract_interval_data()
+            
+            return data
+            
+        except Exception as e:
+            print(f"Error parsing XML file: {e}")
+            raise
+            
+    def _extract_interval_data(self):
+        """Extract and format the interval data from the XML."""
+        all_intervals = []
+        
+        for block in self.interval_blocks:
+            # Get the interval readings
+            readings = block.findall('.//espi:IntervalReading', self.NS)
+            
+            for reading in readings:
+                # Get the start time (in seconds since epoch)
+                start_element = reading.find('./espi:timePeriod/espi:start', self.NS)
+                if start_element is not None:
+                    start_time = int(start_element.text)
+                    # Convert to datetime (seconds since epoch, in UTC)
+                    start_datetime = datetime(1970, 1, 1) + timedelta(seconds=start_time)
+                else:
+                    continue
+                
+                # Get the duration in seconds
+                duration_element = reading.find('./espi:timePeriod/espi:duration', self.NS)
+                if duration_element is not None:
+                    duration = int(duration_element.text)
+                else:
+                    duration = 0
+                
+                # Get the value (in Wh or other unit)
+                value_element = reading.find('./espi:value', self.NS)
+                if value_element is not None:
+                    value = int(value_element.text)
+                else:
+                    value = 0
+                    
+                # Add to our list
+                all_intervals.append({
+                    'timestamp': start_datetime,
+                    'duration': duration,
+                    'value': value / 1000.0  # Convert Wh to kWh
+                })
+        
+        # Convert to DataFrame
+        if all_intervals:
+            df = pd.DataFrame(all_intervals)
+            # Sort by timestamp
+            df = df.sort_values('timestamp')
+            return df
+        else:
+            # Return empty DataFrame with the expected columns
+            return pd.DataFrame(columns=['timestamp', 'duration', 'value'])
+            
+    def get_account_info(self):
+        """Extract account information from the XML if available."""
+        account_info = {}
+        
+        try:
+            # Try to get account identifier
+            account_id = self.root.find('.//espi:ServiceAccount/espi:accountId', self.NS)
+            if account_id is not None:
+                account_info['account_id'] = account_id.text
+                
+            # Try to get meter number
+            meter_number = self.root.find('.//espi:MeterReading/espi:MeterSerialNumber', self.NS)
+            if meter_number is not None:
+                account_info['meter_number'] = meter_number.text
+                
+            # Try to get service address
+            service_address = self.root.find('.//espi:ServiceDeliveryPoint/espi:serviceAddress', self.NS)
+            if service_address is not None:
+                account_info['service_address'] = service_address.text
+            
+            return account_info
+            
+        except Exception as e:
+            print(f"Error extracting account info: {e}")
+            return {}
+            
+    def get_reading_type(self):
+        """Get the reading type (could be energy, demand, etc.)"""
+        reading_type = {}
+        
+        try:
+            # Find the ReadingType element
+            reading_type_element = self.root.find('.//espi:ReadingType', self.NS)
+            
+            if reading_type_element is not None:
+                # Get the accumulation behavior (e.g., incremental reading vs. absolute)
+                accum_element = reading_type_element.find('./espi:accumulationBehaviour', self.NS)
+                if accum_element is not None:
+                    reading_type['accumulation_behavior'] = accum_element.text
+                
+                # Get the commodity (e.g., electricity, gas)
+                commodity_element = reading_type_element.find('./espi:commodity', self.NS)
+                if commodity_element is not None:
+                    reading_type['commodity'] = commodity_element.text
+                
+                # Get the units of measurement
+                uom_element = reading_type_element.find('./espi:uom', self.NS)
+                if uom_element is not None:
+                    reading_type['uom'] = uom_element.text
+            
+            return reading_type
+            
+        except Exception as e:
+            print(f"Error extracting reading type: {e}")
+            return {}

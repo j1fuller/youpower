@@ -1,0 +1,77 @@
+# build_pge_scraper.py
+import os
+import sys
+import shutil
+import subprocess
+
+def build_executable():
+    """Build the executable file for the YouPower PG&E Green Button Data tool."""
+    print("Starting build process for YouPower PG&E GBD Tool...")
+    
+    # Ensure required directories exist
+    if not os.path.exists("dist"):
+        os.makedirs("dist")
+    if not os.path.exists("build"):
+        os.makedirs("build")
+        
+    # Check for required files
+    required_files = ["youpower_pge.py", "icon.ico", "logo.png", "version_info.txt"]
+    for file in required_files:
+        if not os.path.exists(file):
+            print(f"ERROR: Required file '{file}' not found. Build aborted.")
+            return False
+    
+    # Install required packages if not already installed
+    required_packages = [
+        "pyinstaller", 
+        "selenium", 
+        "webdriver-manager", 
+        "pandas", 
+        "openpyxl",
+        "PyQt5"
+    ]
+    
+    print("Checking and installing required packages...")
+    for package in required_packages:
+        try:
+            __import__(package)
+            print(f"- {package} is already installed")
+        except ImportError:
+            print(f"- Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    
+    # Rename the Python script to the final executable name
+    script = "youpower_pge.py"
+    
+    # Build command
+    cmd = [
+        "pyinstaller",
+        "--onefile",
+        "--noconsole",
+        "--icon=icon.ico",
+        "--clean",
+        "--name=youpower_pge",
+        "--version-file=version_info.txt",
+        script
+    ]
+    
+    print("Building executable with PyInstaller...")
+    print(f"Command: {' '.join(cmd)}")
+    
+    try:
+        subprocess.check_call(cmd)
+        print("Build completed successfully!")
+        
+        # Copy additional required files to dist folder
+        for file in ["logo.png", "icon.ico"]:
+            shutil.copy(file, os.path.join("dist", file))
+            print(f"Copied {file} to dist folder")
+        
+        print(f"\nExecutable created: dist/youpower_pge.exe")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Build failed with error: {e}")
+        return False
+
+if __name__ == "__main__":
+    build_executable()"
